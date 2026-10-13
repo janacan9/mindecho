@@ -56,17 +56,17 @@ const today=()=>{const d=new Date();d.setHours(0,0,0,0);return d.getTime()};
 const dueTs=s=>s?new Date(s+'T00:00:00').getTime():null;
 function two(btn,label,fn){let armed=false;btn.onclick=()=>{if(armed){fn();return}armed=true;btn.textContent='Точно? Нажмите ещё раз';setTimeout(()=>{armed=false;btn.textContent=label},3000)}}
 /* speech */
-const SR=window.SpeechRecognition||window.webkitSpeechRecognition;let rec=null,on=false;
-function stopRec(){if(rec&&on)rec.stop()}
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;let rec=null,on=false,want=false;
+function stopRec(){want=false;if(rec&&on)rec.stop()}
 function mic(){
  if(!SR){toast('Этот браузер не поддерживает распознавание речи. Введите текст вручную.');return}
- if(on){rec.stop();return}
- const ta=$('#ta');rec=new SR();rec.lang=st.lang;rec.interimResults=true;rec.continuous=true;
- const base=ta.value;let fin='';
- rec.onresult=e=>{let i='';for(let k=e.resultIndex;k<e.results.length;k++){const r=e.results[k];if(r.isFinal)fin+=r[0].transcript+' ';else i+=r[0].transcript}ta.value=(base?base+' ':'')+fin+i;S.draft=ta.value};
- rec.onerror=e=>{const m={'not-allowed':'Доступ к микрофону запрещён.','service-not-allowed':'Распознавание речи запрещено в этом окружении.','language-not-supported':'Этот язык не поддерживается браузером. Выберите другой.','no-speech':'Речь не услышана. Попробуйте ещё раз.','network':'Нет сети: браузерному распознаванию она нужна.','audio-capture':'Микрофон не найден.'};toast(m[e.error]||'Ошибка распознавания: '+e.error)};
- rec.onstart=()=>{on=true;S.voiceUsed=true;upd()};rec.onend=()=>{on=false;upd()};
- try{rec.start()}catch(e){toast('Не удалось начать запись.')}
+ if(on){want=false;rec.stop();return}
+ const ta=$('#ta');rec=new SR();rec.lang=st.lang;rec.interimResults=true;rec.continuous=false;
+ const base=ta.value;
+ rec.onresult=e=>{let t='';for(let k=0;k<e.results.length;k++)t+=e.results[k][0].transcript;ta.value=(base?base+' ':'')+t.trim();S.draft=ta.value};
+ rec.onerror=e=>{want=false;const m={'not-allowed':'Доступ к микрофону запрещён.','service-not-allowed':'Распознавание речи запрещено в этом окружении.','language-not-supported':'Этот язык не поддерживается браузером. Выберите другой.','no-speech':'Речь не услышана. Попробуйте ещё раз.','network':'Нет сети: браузерному распознаванию она нужна.','audio-capture':'Микрофон не найден.'};toast(m[e.error]||'Ошибка распознавания: '+e.error)};
+ rec.onstart=()=>{on=true;S.voiceUsed=true;upd()};rec.onend=()=>{on=false;upd();if(want)mic()};
+ want=true;try{rec.start()}catch(e){want=false;toast('Не удалось начать запись.')}
 }
 function upd(){const b=$('#mic');if(b){b.classList.toggle('on',on);b.textContent=on?'Стоп':'Говорить';b.setAttribute('aria-pressed',on)}}
 /* insights */
