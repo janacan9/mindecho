@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MindEcho</title>
+<style>
+:root{--bg:#0f0f13;--card:#1a1a21;--tx:#ececf1;--mu:#9a9aa8;--ac:#8b7cf6;--bd:#2c2c38;--rd:#e5666b;--gn:#5fbf8f;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+:root[data-theme=light]{--bg:#f6f6f9;--card:#fff;--tx:#18181f;--mu:#62626f;--ac:#6a58e0;--bd:#dcdce6;--rd:#c0392b;--gn:#1f8a5b}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--tx);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column}
+header{padding:14px 18px 4px;display:flex;justify-content:space-between;align-items:baseline}
+h1{font-size:20px;margin:0}h2{font-size:17px;margin:18px 0 8px}
+main{flex:1;overflow-y:auto;padding:8px 16px 24px;max-width:720px;width:100%;margin:0 auto}
+nav{display:flex;border-top:1px solid var(--bd);background:var(--card)}
+nav button{flex:1;background:none;border:0;color:var(--mu);padding:12px 2px;font:inherit;font-size:13px;cursor:pointer}
+nav button[aria-current=page]{color:var(--ac);font-weight:600;border-top:2px solid var(--ac);margin-top:-1px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px 14px;margin:10px 0}
+.mu{color:var(--mu);font-size:13px}
+textarea,input,select{width:100%;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:10px;padding:10px;font:inherit}
+textarea{min-height:110px;resize:vertical}
+button{font:inherit}.b{background:var(--ac);color:#fff;border:0;border-radius:10px;padding:9px 14px;cursor:pointer}
+.g{background:none;border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:6px 10px;cursor:pointer;font-size:13px}
+.g.d{color:var(--rd)}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}.row>*{flex:0 0 auto}.row .f{flex:1 1 140px}
+#mic{width:84px;height:84px;border-radius:50%;border:0;background:var(--ac);color:#fff;font-size:13px;cursor:pointer;display:block;margin:14px auto 6px}
+#mic.on{background:var(--rd);box-shadow:0 0 0 8px rgba(229,102,107,.25)}
+.tag{display:inline-block;border:1px solid var(--bd);border-radius:20px;padding:0 8px;font-size:12px;color:var(--mu)}
+.od{color:var(--rd);font-weight:600}
+#toast{position:fixed;left:50%;bottom:76px;transform:translateX(-50%);background:var(--tx);color:var(--bg);padding:8px 14px;border-radius:10px;font-size:14px;max-width:90%;display:none}
+.t{display:flex;gap:10px;align-items:flex-start}.t input{width:20px;margin-top:4px}
+@media(prefers-reduced-motion:no-preference){.card{transition:border-color .2s}}
+</style></head><body>
+<header><h1>MindEcho</h1><span class="mu" id="dt"></span></header>
+<main id="main"></main>
+<nav id="nav" aria-label="Разделы"></nav>
+<div id="toast" role="status"></div>
+<script>
+const $=s=>document.querySelector(s);
+const h=(t,a={},...c)=>{const e=document.createElement(t);for(const k in a){if(k==='class')e.className=a[k];else if(k.startsWith('on'))e[k]=a[k];else e.setAttribute(k,a[k])}c.flat().forEach(x=>{if(x!=null&&x!==false)e.append(x)});return e};
+const CATS=['Идея','Задача','Цель','План','Размышление','Вопрос','Другое'];
+const LANGS=[['kk-KZ','Қазақша'],['ru-RU','Русский'],['en-US','English']];
+const uid=()=>crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2);
+const ls={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+let st=Object.assign({theme:'dark',lang:'ru-RU',cat:'Идея'},ls.get('me_set',{}));
+let dis=new Set(ls.get('me_dis',[]));
+const S={view:'home',q:'',cat:'',fav:false,edit:null,notes:[],tasks:[],draft:'',io:''};
+let db=null;
+function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>t.style.display='none',3500)}
+function openDB(){return new Promise((res,rej)=>{try{const r=indexedDB.open('mindecho',1);r.onupgradeneeded=()=>{r.result.createObjectStore('notes',{keyPath:'id'});r.result.createObjectStore('tasks',{keyPath:'id'})};r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)}catch(e){rej(e)}})}
+const tx=(s,m,f)=>new Promise((res,rej)=>{if(!db)return rej(new Error('no db'));const t=db.transaction(s,m);const q=f(t.objectStore(s));t.oncomplete=()=>res(q&&q.result);t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error)});
+const all=s=>tx(s,'readonly',o=>o.getAll()),put=(s,v)=>tx(s,'readwrite',o=>o.put(v)),del=(s,id)=>tx(s,'readwrite',o=>o.delete(id)),clr=s=>tx(s,'readwrite',o=>o.clear());
+async function load(){S.notes=(await all('notes')).sort((a,b)=>b.created-a.created);S.tasks=(await all('tasks')).sort((a,b)=>b.created-a.created)}
+async function run(f,ok){let r=true;try{await f();await load();if(ok)toast(ok)}catch(e){r=false;toast('Ошибка хранилища: данные не сохранены. Текст остался в поле.')}render();return r}
+const fmt=ts=>new Date(ts).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+const today=()=>{const d=new Date();d.setHours(0,0,0,0);return d.getTime()};
+const dueTs=s=>s?new Date(s+'T00:00:00').getTime():null;
+function two(btn,label,fn){let armed=false;btn.onclick=()=>{if(armed){fn();return}armed=true;btn.textContent='Точно? Нажмите ещё раз';setTimeout(()=>{armed=false;btn.textContent=label},3000)}}
+/* speech */
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;let rec=null,on=false;
+function stopRec(){if(rec&&on)rec.stop()}
+function mic(){
+ if(!SR){toast('Этот браузер не поддерживает распознавание речи. Введите текст вручную.');return}
+ if(on){rec.stop();return}
+ const ta=$('#ta');rec=new SR();rec.lang=st.lang;rec.interimResults=true;rec.continuous=true;
+ const base=ta.value;let fin='';
+ rec.onresult=e=>{let i='';for(let k=e.resultIndex;k<e.results.length;k++){const r=e.results[k];if(r.isFinal)fin+=r[0].transcript+' ';else i+=r[0].transcript}ta.value=(base?base+' ':'')+fin+i;S.draft=ta.value};
+ rec.onerror=e=>{const m={'not-allowed':'Доступ к микрофону запрещён.','service-not-allowed':'Распознавание речи запрещено в этом окружении.','language-not-supported':'Этот язык не поддерживается браузером. Выберите другой.','no-speech':'Речь не услышана. Попробуйте ещё раз.','network':'Нет сети: браузерному распознаванию она нужна.','audio-capture':'Микрофон не найден.'};toast(m[e.error]||'Ошибка распознавания: '+e.error)};
+ rec.onstart=()=>{on=true;S.voiceUsed=true;upd()};rec.onend=()=>{on=false;upd()};
+ try{rec.start()}catch(e){toast('Не удалось начать запись.')}
+}
+function upd(){const b=$('#mic');if(b){b.classList.toggle('on',on);b.textContent=on?'Стоп':'Говорить';b.setAttribute('aria-pressed',on)}}
+/* insights */
+const STOP=new Set('это как что для или при так там тут его она они мне меня тебя если когда чтобы очень просто надо нужно хочу быть было есть этот эти всех еще уже можно только потом после перед который которые чтобы which that this with have from they their about would there what when will your been were than then into also және мен бұл үшін деген болып бар жоқ'.split(' '));
+const tok=t=>t.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu,' ').split(/\s+/).filter(w=>w.length>=4&&!STOP.has(w)).map(w=>w.slice(0,7));
+const INT=/(^|[.!?\n]\s*)((?:я |мне )?(?:нужно|надо|хочу|планирую|должен|need to|i should|i want to|i plan to|керек|қажет|болғым келеді)[^.!?\n]{5,120})/giu;
+function insights(){
+ const ns=S.notes.filter(n=>!n.archived&&n.text.length>=25);const out={topics:[],rel:[],ints:[],over:[],ns};
+ const sets=ns.map(n=>new Set(tok(n.title+' '+n.text)));const cnt={};
+ sets.forEach((s,i)=>s.forEach(w=>(cnt[w]=cnt[w]||[]).push(i)));
+ out.topics=Object.entries(cnt).filter(([w,a])=>a.length>=2&&!dis.has('t|'+w)).sort((a,b)=>b[1].length-a[1].length).slice(0,6).map(([w,a])=>({w,notes:a.map(i=>ns[i])}));
+ for(let i=0;i<ns.length;i++)for(let j=i+1;j<ns.length;j++){const sh=[...sets[i]].filter(w=>sets[j].has(w));const k='r|'+ns[i].id+ns[j].id;if(sh.length>=3&&!dis.has(k))out.rel.push({a:ns[i],b:ns[j],sh,k,sc:sh.length/new Set([...sets[i],...sets[j]]).size})}
+ out.rel.sort((a,b)=>b.sc-a.sc);out.rel=out.rel.slice(0,5);
+ S.notes.filter(n=>!n.archived).forEach(n=>{for(const m of n.text.matchAll(INT)){const k='i|'+n.id+m[2].slice(0,30);if(!dis.has(k))out.ints.push({n,s:m[2].trim(),k})}});
+ out.ints=out.ints.slice(0,8);
+ out.over=S.tasks.filter(t=>!t.done&&t.due&&dueTs(t.due)<today());
+ return out}
+function hide(k){dis.add(k);ls.set('me_dis',[...dis]);render()}
+/* views */
+function noteCard(n){
+ if(S.edit===n.id){const ta=h('textarea',{},n.text);const sel=h('select',{},CATS.map(c=>h('option',{value:c,...(c===n.cat?{selected:''}:{})},c)));
+  return h('div',{class:'card'},ta,h('div',{class:'row'},sel,h('button',{class:'b',onclick:()=>{const v=ta.value.trim();if(!v)return toast('Текст пустой.');run(()=>put('notes',{...n,text:v,title:v.slice(0,40),cat:sel.value,modified:Date.now()}),'Сохранено')}},'Сохранить'),h('button',{class:'g',onclick:()=>{S.edit=null;render()}},'Отмена')))}
+ const del_=h('button',{class:'g d'},'Удалить');two(del_,'Удалить',()=>run(()=>del('notes',n.id),'Удалено'));
+ return h('div',{class:'card'},h('div',{},h('strong',{},n.title||'Без названия')),h('div',{style:'white-space:pre-wrap;margin:6px 0'},n.text),
+  h('div',{class:'mu'},fmt(n.created)+' · ',h('span',{class:'tag'},n.cat),' '+(n.source==='voice'?'🎙 голос':'⌨ текст')),
+  h('div',{class:'row'},h('button',{class:'g','aria-label':'Избранное',onclick:()=>run(()=>put('notes',{...n,fav:!n.fav}))},n.fav?'★':'☆'),
+   h('button',{class:'g',onclick:()=>{S.edit=n.id;render()}},'Править'),
+   h('button',{class:'g',onclick:()=>run(()=>put('tasks',{id:uid(),title:n.text.slice(0,80),done:false,created:Date.now(),due:'',noteId:n.id}),'Задача создана')},'В задачу'),
+   h('button',{class:'g',onclick:()=>run(()=>put('notes',{...n,archived:true}),'В архиве')},'Архив'),del_))}
+function vHome(){
+ const ta=h('textarea',{id:'ta',placeholder:'Запишите идею, план или мысль…','aria-label':'Текст заметки',oninput:e=>S.draft=e.target.value},S.draft);
+ const lang=h('select',{'aria-label':'Язык речи',onchange:e=>{st.lang=e.target.value;ls.set('me_set',st)}},LANGS.map(l=>h('option',{value:l[0],...(l[0]===st.lang?{selected:''}:{})},l[1])));
+ const cat=h('select',{'aria-label':'Категория'},CATS.map(c=>h('option',{value:c,...(c===st.cat?{selected:''}:{})},c)));
+ const pend=S.tasks.filter(t=>!t.done).slice(0,3);
+ return h('div',{},h('h2',{},'Что у вас на уме?'),
+  h('button',{id:'mic','aria-pressed':'false',onclick:mic},'Говорить'),
+  h('p',{class:'mu',style:'text-align:center'},SR?'Распознавание делает браузер: звук может отправляться на сервер его провайдера. Результат можно править.':'Голосовой ввод здесь недоступен, пишите текстом.'),
+  ta,h('div',{class:'row'},h('span',{class:'f'},lang),h('span',{class:'f'},cat)),
+  h('div',{class:'row'},h('button',{class:'b',onclick:()=>{const v=ta.value.trim();if(!v)return toast('Пусто: нечего сохранять.');const n={id:uid(),title:v.slice(0,40),text:v,created:Date.now(),modified:Date.now(),source:on?'voice':(S.voiceUsed?'voice':'manual'),lang:st.lang,cat:cat.value,fav:false,archived:false};stopRec();run(()=>put('notes',n),'Сохранено').then(ok=>{if(ok){S.draft='';S.voiceUsed=false;render()}})}},'Сохранить'),h('button',{class:'g',onclick:()=>{stopRec();S.draft='';render()}},'Очистить')),
+  h('h2',{},'Последние заметки'),S.notes.filter(n=>!n.archived).slice(0,3).map(noteCard).concat(S.notes.length?[]:[h('p',{class:'mu'},'Пока пусто. Сохраните первую мысль.')]),
+  pend.length?h('h2',{},'Ближайшие задачи'):null,pend.map(t=>h('div',{class:'card'},t.title)))}
+function vNotes(){
+ const q=S.q.toLowerCase();let l=S.notes.filter(n=>S.cat==='arch'?n.archived:!n.archived);
+ if(S.fav)l=l.filter(n=>n.fav);if(CATS.includes(S.cat))l=l.filter(n=>n.cat===S.cat);
+ if(q)l=l.filter(n=>(n.title+' '+n.text+' '+n.cat).toLowerCase().includes(q));
+ const sel=h('select',{'aria-label':'Фильтр',onchange:e=>{S.cat=e.target.value;render()}},h('option',{value:''},'Все категории'),CATS.map(c=>h('option',{value:c,...(S.cat===c?{selected:''}:{})},c)),h('option',{value:'arch',...(S.cat==='arch'?{selected:''}:{})},'Архив'));
+ const si=h('input',{type:'search',placeholder:'Поиск по заметкам','aria-label':'Поиск',value:S.q,oninput:e=>{S.q=e.target.value;render();const i=$('input[type=search]');i.focus();i.setSelectionRange(99,99)}});
+ return h('div',{},h('h2',{},'Все заметки'),si,h('div',{class:'row'},h('span',{class:'f'},sel),h('button',{class:'g',onclick:()=>{S.fav=!S.fav;render()}},S.fav?'★ только избранные':'☆ избранные'),(S.q||S.cat||S.fav)?h('button',{class:'g',onclick:()=>{S.q='';S.cat='';S.fav=false;render()}},'Сбросить'):null),
+  S.cat==='arch'?l.map(n=>h('div',{class:'card'},n.title,h('div',{class:'row'},h('button',{class:'g',onclick:()=>run(()=>put('notes',{...n,archived:false}))},'Восстановить')))):l.map(noteCard),
+  l.length?null:h('p',{class:'mu'},'Ничего не найдено.'))}
+function vTasks(){
+ const ti=h('input',{placeholder:'Новая задача','aria-label':'Название задачи'}),di=h('input',{type:'date','aria-label':'Срок'});
+ const l=[...S.tasks].sort((a,b)=>a.done-b.done||((dueTs(a.due)||9e15)-(dueTs(b.due)||9e15)));
+ return h('div',{},h('h2',{},'Задачи'),h('div',{class:'row'},h('span',{class:'f'},ti),h('span',{},di),h('button',{class:'b',onclick:()=>{const v=ti.value.trim();if(!v)return toast('Введите название.');run(()=>put('tasks',{id:uid(),title:v,done:false,created:Date.now(),due:di.value,noteId:null}),'Задача добавлена')}},'Добавить')),
+  l.map(t=>{const od=!t.done&&t.due&&dueTs(t.due)<today();const d=h('button',{class:'g d'},'✕');two(d,'✕',()=>run(()=>del('tasks',t.id)));
+   return h('div',{class:'card t'},h('input',{type:'checkbox',...(t.done?{checked:''}:{}),'aria-label':'Выполнено',onchange:()=>run(()=>put('tasks',{...t,done:!t.done,doneAt:t.done?null:Date.now()}))}),
+    h('div',{style:'flex:1'},h('div',{style:t.done?'text-decoration:line-through;color:var(--mu)':''},t.title),h('div',{class:'mu'},t.due?['Срок: '+t.due,od?h('span',{class:'od'},' · просрочено'):null]:'Без срока')),d)}),
+  l.length?null:h('p',{class:'mu'},'Задач нет.'))}
+function vIns(){
+ const I=insights();const wk=Date.now()-7*864e5;
+ const link=(n)=>h('div',{class:'mu'},'• '+fmt(n.created)+': '+n.text.slice(0,70)+(n.text.length>70?'…':''));
+ const x=(k)=>h('button',{class:'g',onclick:()=>hide(k)},'Скрыть');
+ return h('div',{},h('h2',{},'Наблюдения'),
+  h('p',{class:'mu'},'Всё считается на устройстве по совпадению слов. Это подсказки, а не выводы о вас. Под каждой указаны заметки-основания.'),
+  I.ns.length<3?h('div',{class:'card'},'Данных пока мало: нужно хотя бы 3 заметки длиннее 25 символов.'):null,
+  h('div',{class:'card'},h('strong',{},'За 7 дней'),h('div',{class:'mu'},'Заметок: '+S.notes.filter(n=>n.created>wk).length+' · Задач выполнено: '+S.tasks.filter(t=>t.doneAt>wk).length+' · Просрочено: '+I.over.length)),
+  I.over.length?h('h2',{},'Просроченные задачи'):null,I.over.map(t=>h('div',{class:'card'},h('span',{class:'od'},t.title),h('div',{class:'mu'},'Срок был '+t.due))),
+  I.topics.length?h('h2',{},'Повторяющиеся темы'):null,
+  I.topics.map(t=>h('div',{class:'card'},h('strong',{},'«'+t.w+'…»'),' ',h('span',{class:'tag'},t.notes.length>=3?'заметная тема':'слабый сигнал'),h('div',{class:'mu'},'Встречается в '+t.notes.length+' заметках:'),t.notes.slice(0,4).map(link),h('div',{class:'row'},x('t|'+t.w)))),
+  I.rel.length?h('h2',{},'Возможные связи'):null,
+  I.rel.map(r=>h('div',{class:'card'},h('span',{class:'tag'},'Возможная связь'),h('div',{class:'mu'},'Общие слова: '+r.sh.slice(0,5).join(', ')),link(r.a),link(r.b),h('div',{class:'row'},x(r.k)))),
+  I.ints.length?h('h2',{},'Намерения (возможно, задачи)'):null,
+  I.ints.map(i=>h('div',{class:'card'},h('div',{},'«'+i.s+'»'),h('div',{class:'mu'},fmt(i.n.created)),h('div',{class:'row'},h('button',{class:'b',onclick:()=>{dis.add(i.k);ls.set('me_dis',[...dis]);run(()=>put('tasks',{id:uid(),title:i.s.slice(0,80),done:false,created:Date.now(),due:'',noteId:i.n.id}),'Задача создана')}},'В задачу'),x(i.k)))),
+  h('div',{class:'row'},h('button',{class:'g',onclick:()=>{dis=new Set();ls.set('me_dis',[]);render()}},'Вернуть скрытые')))}
+function vSet(){
+ const th=h('select',{'aria-label':'Тема',onchange:e=>{st.theme=e.target.value;ls.set('me_set',st);theme()}},[['dark','Тёмная'],['light','Светлая'],['system','Системная']].map(a=>h('option',{value:a[0],...(st.theme===a[0]?{selected:''}:{})},a[1])));
+ const dc=h('select',{'aria-label':'Категория по умолчанию',onchange:e=>{st.cat=e.target.value;ls.set('me_set',st)}},CATS.map(c=>h('option',{value:c,...(st.cat===c?{selected:''}:{})},c)));
+ const io=h('textarea',{'aria-label':'JSON данных',placeholder:'Здесь появится экспорт. Для импорта вставьте JSON и нажмите «Импорт».'},S.io);
+ const wipe=h('button',{class:'g d'},'Удалить все данные');two(wipe,'Удалить все данные',()=>run(async()=>{await clr('notes');await clr('tasks')},'Всё удалено. Восстановить нельзя.'));
+ return h('div',{},h('h2',{},'Настройки'),h('div',{class:'card'},h('div',{class:'row'},h('span',{class:'f'},'Тема'),th),h('div',{class:'row'},h('span',{class:'f'},'Категория по умолчанию'),dc)),
+  h('h2',{},'Данные и приватность'),
+  h('div',{class:'card mu'},'Заметки и задачи хранятся только в IndexedDB этого браузера, без регистрации и аналитики. Хранилище не зашифровано. Очистка данных браузера или смена устройства удалит их: делайте экспорт. Внешний ИИ не подключён, ничего никуда не отправляется (кроме речи в браузерном распознавании, см. главную).'),
+  io,h('div',{class:'row'},h('button',{class:'b',onclick:()=>{S.io=JSON.stringify({v:1,notes:S.notes,tasks:S.tasks},null,1);render();const t=$('textarea');t.select();try{navigator.clipboard.writeText(S.io).then(()=>toast('Скопировано в буфер'),()=>toast('Выделено: скопируйте вручную'))}catch(e){toast('Выделено: скопируйте вручную')}}},'Экспорт'),
+   h('button',{class:'g',onclick:()=>{let d;try{d=JSON.parse(io.value)}catch(e){return toast('Это не JSON.')}
+    if(!d||d.v!==1||!Array.isArray(d.notes)||!Array.isArray(d.tasks))return toast('Неверный формат или версия.');
+    const okN=d.notes.filter(n=>n&&typeof n.id==='string'&&typeof n.text==='string'),okT=d.tasks.filter(t=>t&&typeof t.id==='string'&&typeof t.title==='string');
+    const ids=new Set([...S.notes,...S.tasks].map(x=>x.id));const nn=okN.filter(n=>!ids.has(n.id)),nt=okT.filter(t=>!ids.has(t.id));
+    run(async()=>{for(const n of nn)await put('notes',{title:n.text.slice(0,40),created:Date.now(),modified:Date.now(),cat:'Другое',fav:false,archived:false,source:'manual',...n});for(const t of nt)await put('tasks',{done:false,created:Date.now(),due:'',...t})},'Импорт: заметок '+nn.length+', задач '+nt.length+' (совпавшие ID пропущены)')}},'Импорт'),wipe))}
+const V={home:['Главная',vHome],notes:['Заметки',vNotes],ins:['Наблюдения',vIns],tasks:['Задачи',vTasks],set:['Настройки',vSet]};
+function render(){
+ $('#main').replaceChildren(V[S.view][1]());
+ $('#nav').replaceChildren(...Object.entries(V).map(([k,v])=>{const b=h('button',{onclick:()=>{stopRec();S.view=k;render()}},v[0]);if(k===S.view)b.setAttribute('aria-current','page');return b}));
+ upd()}
+function theme(){const t=st.theme==='system'?(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):st.theme;document.documentElement.dataset.theme=t}
+$('#dt').textContent=new Date().toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'});
+theme();
+openDB().then(d=>{db=d;return load()}).then(render).catch(()=>{render();toast('Хранилище браузера недоступно: заметки не сохранятся.')});
+</script></body></html>
